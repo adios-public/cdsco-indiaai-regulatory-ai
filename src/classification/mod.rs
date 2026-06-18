@@ -20,12 +20,15 @@ Analyse the case narration and return a JSON object with these exact keys:
 
 Return only valid JSON. No preamble. No markdown fences."#;
 
-// ── Types ──────────────────────────────────────────────────────────────────────────
+// ── Types ────────────────────────────────────────────────────────────────────
 
 #[derive(Deserialize)]
 pub struct ClassificationRequest {
     pub case_narration:   String,
+    // Reserved for Stage 2: vector search against CDSCO case DB
+    #[allow(dead_code)]
     pub check_duplicate:  Option<bool>,
+    #[allow(dead_code)]
     pub existing_case_ids: Option<Vec<String>>,
 }
 
@@ -49,7 +52,7 @@ fn severity_to_priority(s: &str) -> &'static str {
     }
 }
 
-// ── Handler ───────────────────────────────────────────────────────────────────────
+// ── Handler ──────────────────────────────────────────────────────────────────
 
 pub async fn handle(
     State(state): State<AppState>,
@@ -79,7 +82,7 @@ pub async fn handle(
         severity,
         priority,
         confidence: (confidence * 1000.0).round() / 1000.0,
-        is_duplicate: false,              // Stage 2: vector search against CDSCO DB
+        is_duplicate: false,
         duplicate_case_ids: Vec::new(),
         rationale,
         expedited_reporting_required: expedited,

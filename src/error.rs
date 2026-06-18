@@ -1,10 +1,16 @@
-use axum::{http::StatusCode, response::{IntoResponse, Response}, Json};
+use axum::{
+    http::StatusCode,
+    response::{IntoResponse, Response},
+    Json,
+};
+use serde_json::json;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum AppError {
     #[error("Inference error: {0}")]
     Inference(#[from] anyhow::Error),
+    #[allow(dead_code)]
     #[error("Bad request: {0}")]
     BadRequest(String),
 }
@@ -12,9 +18,9 @@ pub enum AppError {
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
         let (status, msg) = match &self {
-            AppError::BadRequest(_) => (StatusCode::BAD_REQUEST,            self.to_string()),
-            _                       => (StatusCode::INTERNAL_SERVER_ERROR,   self.to_string()),
+            AppError::Inference(e)   => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+            AppError::BadRequest(m)  => (StatusCode::BAD_REQUEST,           m.clone()),
         };
-        (status, Json(serde_json::json!({"error": msg}))).into_response()
+        (status, Json(json!({ "error": msg }))).into_response()
     }
 }

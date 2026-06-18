@@ -7,7 +7,7 @@ use similar::{ChangeTag, TextDiff};
 
 use crate::{error::AppError, AppState};
 
-// ── Shared field schema ───────────────────────────────────────────────────────────
+// ── Shared field schema ─────────────────────────────────────────────────────
 
 struct FieldDef { name: &'static str, section: &'static str, mandatory: bool }
 
@@ -47,7 +47,7 @@ const CT_FIELDS: &[FieldDef] = &[
     FieldDef { name: "informed_consent_process",section:"Regulatory",     mandatory: true },
 ];
 
-// ── Completeness types ────────────────────────────────────────────────────────────
+// ── Completeness types ───────────────────────────────────────────────────────
 
 #[derive(Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -78,7 +78,7 @@ pub struct CompletenessResponse {
     pub review_recommendation:  String,
 }
 
-// ── Completeness handler ──────────────────────────────────────────────────────────
+// ── Completeness handler ─────────────────────────────────────────────────────
 
 pub async fn handle_assess(
     State(_state): State<AppState>,
@@ -144,12 +144,14 @@ fn check_inconsistencies(doc: &serde_json::Value, kind: &str) -> Vec<String> {
     issues
 }
 
-// ── Comparison types ─────────────────────────────────────────────────────────────
+// ── Comparison types ─────────────────────────────────────────────────────────
 
 #[derive(Deserialize)]
 pub struct ComparisonRequest {
     pub document_v1:          String,
     pub document_v2:          String,
+    // Reserved for Stage 2: filter output to substantive changes only
+    #[allow(dead_code)]
     pub highlight_substantive: Option<bool>,
 }
 
@@ -171,7 +173,7 @@ pub struct ComparisonResponse {
     pub reviewer_summary:   String,
 }
 
-// ── Comparison handler ────────────────────────────────────────────────────────────
+// ── Comparison handler ───────────────────────────────────────────────────────
 
 pub async fn handle_compare(
     State(state): State<AppState>,
@@ -197,7 +199,6 @@ pub async fn handle_compare(
         }
     }
 
-    // Semantic similarity via nomic-embed-text
     let sim = semantic_sim(&state, &req.document_v1, &req.document_v2).await;
 
     let substantive = changes.iter().filter(|c| c.is_substantive).count();
@@ -225,7 +226,7 @@ async fn semantic_sim(state: &AppState, a: &str, b: &str) -> f32 {
     );
     match (ea, eb) {
         (Ok(va), Ok(vb)) => cosine(&va, &vb),
-        _ => 0.5, // fallback
+        _ => 0.5,
     }
 }
 
