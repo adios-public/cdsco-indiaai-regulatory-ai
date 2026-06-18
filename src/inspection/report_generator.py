@@ -1,8 +1,12 @@
-"""Convert unstructured inspection observations to standardised CDSCO report format."""
+"""Convert unstructured inspection observations to standardised CDSCO report format.
+
+Uses the powerful local model for long-form structured generation.
+"""
 from __future__ import annotations
 
 import json
-from src.core.llm import complete
+import re
+from src.core.llm import complete_powerful
 from src.inspection.schemas import InspectionRequest, InspectionResponse
 
 _SYSTEM = """You are a CDSCO inspection officer drafting a formal inspection report.
@@ -15,22 +19,26 @@ Return a JSON object with keys:
 - minor_observations: list of strings — minor deviations for improvement
 - recommendations: list of strings — specific corrective/preventive actions recommended
 
-Classify each observation per CDSCO inspection guidelines.
-Return only valid JSON. No preamble."""
+Classify each observation per CDSCO inspection guidelines (Schedule M / GCP / GLP as applicable).
+Return only valid JSON. No preamble. No markdown fences."""
 
 
 class InspectionReportGenerator:
     def generate(self, req: InspectionRequest) -> InspectionResponse:
-        user_prompt = f"""Inspection Type: {req.inspection_type}
-Site: {req.site_name}
-Date: {req.inspection_date}
+        user_prompt = (
+            f"Inspection Type: {req.inspection_type}\n"
+            f"Site: {req.site_name}\n"
+            f"Date: {req.inspection_date}\n\n"
+            f"Raw Observations:\n{req.observations_raw}"
+        )
 
-Raw Observations:
-{req.observations_raw}"""
+        raw = complete_powerful(system=_SYSTEM, user=user_prompt)
+        raw = re.sub(r"<think>.*?</think>", "", raw, flags=re.DOTALL).strip()
+        json_match = re.search(r"```(?:json)?\s*([\s\S]*?)```", raw)
+        json_str = json_match.group(1).strip() if json_match else raw
 
-        raw = complete(system=_SYSTEM, user=user_prompt)
         try:
-            parsed = json.loads(raw)
+            parsed = json.loads(json_str)
         except json.JSONDecodeError:
             parsed = {
                 "executive_summary": raw[:500],
@@ -40,11 +48,10 @@ Raw Observations:
                 "recommendations": ["Manual review required — automated parsing failed."],
             }
 
-        # Assemble the formatted report
         critical = parsed.get("critical_observations", [])
-        major = parsed.get("major_observations", [])
-        minor = parsed.get("minor_observations", [])
-        recs = parsed.get("recommendations", [])
+        major    = parsed.get("major_observations", [])
+        minor    = parsed.get("minor_observations", [])
+        recs     = parsed.get("recommendations", [])
 
         def _section(title: str, items: list[str]) -> str:
             if not items:

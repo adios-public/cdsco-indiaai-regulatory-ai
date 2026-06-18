@@ -1,8 +1,11 @@
-"""Document summarisation for SUGAM checklists, SAE narrations, and meeting transcripts."""
+"""Document summarisation for SUGAM checklists, SAE narrations, and meeting transcripts.
+
+Uses the powerful local model (qwen3.6) for long-form synthesis tasks.
+"""
 from __future__ import annotations
 
 import json
-from src.core.llm import complete
+from src.core.llm import complete_powerful
 from src.summarisation.schemas import SummarisationRequest, SummarisationResponse, SourceType
 
 _SYSTEM_PROMPTS: dict[str, str] = {
@@ -38,17 +41,25 @@ Return only valid JSON. No preamble.""",
 class DocumentSummariser:
     def summarise(self, req: SummarisationRequest) -> SummarisationResponse:
         system = _SYSTEM_PROMPTS[req.source_type].format(max_words=req.max_summary_words)
-        raw = complete(system=system, user=req.text)
+        # Use powerful model for summarisation — it handles long documents better
+        raw = complete_powerful(system=system, user=req.text)
+
+        # Strip <think>...</think> blocks that reasoning models (deepseek-r1, qwen3.6) emit
+        import re
+        raw = re.sub(r"<think>.*?</think>", "", raw, flags=re.DOTALL).strip()
+
+        # Extract JSON from response (model may wrap it in markdown fences)
+        json_match = re.search(r"```(?:json)?\s*([\s\S]*?)```", raw)
+        json_str = json_match.group(1).strip() if json_match else raw
 
         try:
-            parsed = json.loads(raw)
+            parsed = json.loads(json_str)
         except json.JSONDecodeError:
-            # Fallback: treat entire response as summary
             parsed = {
                 "summary": raw[:1000],
                 "key_decisions": [],
                 "action_items": [],
-                "flagged_concerns": ["LLM returned non-JSON; manual review required"],
+                "flagged_concerns": ["Model returned non-JSON; manual review required"],
             }
 
         summary = parsed.get("summary", "")

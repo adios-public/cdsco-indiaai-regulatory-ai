@@ -1,7 +1,8 @@
-"""SAE severity classification using Claude with rule-based priority escalation."""
+"""SAE severity classification using local Ollama model with rule-based priority escalation."""
 from __future__ import annotations
 
 import json
+import re
 from src.core.llm import complete
 from src.classification.schemas import (
     ClassificationRequest, ClassificationResponse, SAESeverity, ReviewPriority
@@ -16,7 +17,7 @@ Analyse the case narration and return a JSON object with keys:
 - rationale: brief explanation (max 100 words) of classification reasoning
 - expedited_reporting_required: true if the event requires 15-day expedited reporting per Schedule Y
 
-Return only valid JSON. No preamble."""
+Return only valid JSON. No preamble. No markdown fences."""
 
 _PRIORITY_MAP = {
     SAESeverity.death: ReviewPriority.critical,
@@ -31,8 +32,14 @@ _PRIORITY_MAP = {
 class SAEClassifier:
     def classify(self, req: ClassificationRequest) -> ClassificationResponse:
         raw = complete(system=_SYSTEM, user=req.case_narration)
+
+        # Strip reasoning traces from models like deepseek-r1 / qwen3.6
+        raw = re.sub(r"<think>.*?</think>", "", raw, flags=re.DOTALL).strip()
+        json_match = re.search(r"```(?:json)?\s*([\s\S]*?)```", raw)
+        json_str = json_match.group(1).strip() if json_match else raw
+
         try:
-            parsed = json.loads(raw)
+            parsed = json.loads(json_str)
         except json.JSONDecodeError:
             parsed = {
                 "severity": "other",
@@ -45,12 +52,10 @@ class SAEClassifier:
         priority = _PRIORITY_MAP.get(severity, ReviewPriority.medium)
         confidence = float(parsed.get("confidence", 0.5))
 
-        # Duplicate detection: simple keyword overlap heuristic for Stage 1
-        # Stage 2 will use vector similarity against the CDSCO case database
         is_duplicate = False
         duplicate_ids: list[str] = []
         if req.check_duplicate and req.existing_case_ids:
-            # Placeholder: in Stage 2 this queries the secure CDSCO dataset
+            # Stage 2: vector similarity search against CDSCO case database
             is_duplicate = False
 
         if is_duplicate:

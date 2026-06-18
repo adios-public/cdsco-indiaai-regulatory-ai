@@ -3,8 +3,16 @@ from functools import lru_cache
 
 
 class Settings(BaseSettings):
-    anthropic_api_key: str = ""
-    llm_model: str = "claude-sonnet-4-6"
+    # Ollama / AIKosh local inference
+    ollama_base_url: str = "http://localhost:11434"
+
+    # Model routing:
+    #   default_model   — used for classification, completeness, inspection
+    #   powerful_model  — used for summarisation and long-form report generation
+    default_model: str = "gajendra:latest"
+    powerful_model: str = "qwen3.6:latest"
+
+    llm_timeout_seconds: int = 120
     llm_max_tokens: int = 4096
 
     api_host: str = "0.0.0.0"
