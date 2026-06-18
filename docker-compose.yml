@@ -1,13 +1,44 @@
 version: '3.9'
 services:
+
+  # ── adios-inference: Unified Indic AI gateway (HuggingFace + Ollama proxy)
+  adios-inference:
+    build:
+      context: .
+      dockerfile: services/adios-inference/Dockerfile
+    ports:
+      - '8010:8010'
+    environment:
+      OLLAMA_BASE_URL: http://host.docker.internal:11434
+      ADIOS_MODEL_DIR: /models
+      INFERENCE_DEVICE: cpu    # change to 'cuda' if GPU passthrough is configured
+    volumes:
+      - type: bind
+        source: ${HOME}/.adios/models/hf
+        target: /models
+    extra_hosts:
+      - 'host.docker.internal:host-gateway'
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8010/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ── Rust regulatory AI API
   api:
     build: .
     ports:
       - '8000:8000'
     env_file:
       - .env
+    environment:
+      INFERENCE_GATEWAY_URL: http://adios-inference:8010
     extra_hosts:
       - 'host.docker.internal:host-gateway'
+    depends_on:
+      adios-inference:
+        condition: service_healthy
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
