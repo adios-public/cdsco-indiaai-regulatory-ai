@@ -1,0 +1,27 @@
+SAMPLE ANONYMISED CLINICAL DOCUMENT
+(All identifiers replaced with synthetic data for demonstration purposes)
+
+Protocol Number: CT-DEMO-2024-001
+Sponsor: DemoPharma Limited
+Investigational Product: Compound-X 50mg Tablet
+Phase: III
+Study Title: A Randomised, Double-Blind, Placebo-Controlled Study
+
+Subject ID: SUBJ-0042
+Age Group: Adult (25–65 years)
+Sex: Female
+Enrolment Site: Site 03 (Southern India)
+
+Background:
+Subject enrolled on Day 0 per protocol. No significant medical history. 
+Baseline vitals within normal range. Informed consent obtained prior to screening.
+
+Adverse Event Report:
+On Day 14, subject reported mild nausea and headache (Grade 1, NCI-CTCAE v5.0). 
+Event onset: Day 14. Duration: 48 hours. Resolution: Complete.
+Investigator assessment: Possibly related to investigational product.
+Action taken: No dose modification. Subject continued in study.
+
+Concomitant Medications: None.
+
+Outcome: Recovered without sequelae.

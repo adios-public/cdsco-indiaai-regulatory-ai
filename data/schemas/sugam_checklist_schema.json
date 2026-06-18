@@ -1,0 +1,48 @@
+{
+  "schema_name": "SUGAM New Drug Application Checklist",
+  "version": "2024",
+  "source": "CDSCO SUGAM Portal",
+  "sections": [
+    {
+      "name": "Administrative",
+      "fields": [
+        {"id": "applicant_name", "label": "Name of Applicant", "type": "string", "mandatory": true},
+        {"id": "applicant_address", "label": "Registered Address", "type": "string", "mandatory": true},
+        {"id": "authorized_agent", "label": "Authorised Agent in India", "type": "string", "mandatory": false},
+        {"id": "application_date", "label": "Date of Application", "type": "date", "mandatory": true}
+      ]
+    },
+    {
+      "name": "Drug Information",
+      "fields": [
+        {"id": "drug_substance_name", "label": "INN / Proposed Name of Drug", "type": "string", "mandatory": true},
+        {"id": "dosage_form", "label": "Dosage Form", "type": "string", "mandatory": true},
+        {"id": "strength", "label": "Strength(s)", "type": "string", "mandatory": true},
+        {"id": "route_of_administration", "label": "Route of Administration", "type": "string", "mandatory": true},
+        {"id": "therapeutic_category", "label": "Therapeutic Category", "type": "string", "mandatory": false}
+      ]
+    },
+    {
+      "name": "Clinical",
+      "fields": [
+        {"id": "proposed_indication", "label": "Proposed Indication(s)", "type": "string", "mandatory": true},
+        {"id": "clinical_trial_data", "label": "Clinical Trial Data (Phase I/II/III)", "type": "document", "mandatory": true},
+        {"id": "foreign_approval", "label": "Approval in Other Countries", "type": "string", "mandatory": false}
+      ]
+    },
+    {
+      "name": "Safety",
+      "fields": [
+        {"id": "safety_data", "label": "Safety and Pharmacovigilance Data", "type": "document", "mandatory": true},
+        {"id": "risk_management_plan", "label": "Risk Management Plan", "type": "document", "mandatory": false}
+      ]
+    },
+    {
+      "name": "Manufacturing",
+      "fields": [
+        {"id": "manufacturing_site", "label": "Manufacturing Site(s)", "type": "string", "mandatory": true},
+        {"id": "gmp_certificate", "label": "GMP Certificate", "type": "document", "mandatory": true}
+      ]
+    }
+  ]
+}

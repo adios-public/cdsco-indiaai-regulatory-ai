@@ -1,0 +1,33 @@
+{
+  "schema_name": "CDSCO SAE Individual Case Safety Report Schema",
+  "version": "2024",
+  "reference": "Schedule Y, Drugs and Cosmetics Act 1940",
+  "severity_categories": [
+    "death",
+    "life_threatening",
+    "hospitalisation",
+    "disability",
+    "congenital_anomaly",
+    "other"
+  ],
+  "expedited_reporting_categories": ["death", "life_threatening"],
+  "expedited_reporting_timeline_days": 15,
+  "fields": [
+    {"id": "case_id", "label": "Case ID", "mandatory": true, "section": "Administrative"},
+    {"id": "report_type", "label": "Report Type (Initial/Follow-up)", "mandatory": true, "section": "Administrative"},
+    {"id": "report_date", "label": "Date of Report", "mandatory": true, "section": "Administrative"},
+    {"id": "patient_age", "label": "Patient Age", "mandatory": true, "section": "Patient"},
+    {"id": "patient_sex", "label": "Patient Sex", "mandatory": true, "section": "Patient"},
+    {"id": "patient_weight", "label": "Patient Weight (kg)", "mandatory": false, "section": "Patient"},
+    {"id": "suspect_drug", "label": "Suspect Drug Name + Dose", "mandatory": true, "section": "Drug"},
+    {"id": "indication_for_use", "label": "Indication for Use", "mandatory": true, "section": "Drug"},
+    {"id": "start_date", "label": "Drug Start Date", "mandatory": true, "section": "Drug"},
+    {"id": "concomitant_medications", "label": "Concomitant Medications", "mandatory": false, "section": "Drug"},
+    {"id": "event_description", "label": "Event Description", "mandatory": true, "section": "Event"},
+    {"id": "event_onset_date", "label": "Event Onset Date", "mandatory": true, "section": "Event"},
+    {"id": "outcome", "label": "Outcome", "mandatory": true, "section": "Event"},
+    {"id": "causality_assessment", "label": "Causality Assessment", "mandatory": true, "section": "Assessment"},
+    {"id": "reporter_name", "label": "Reporter Name", "mandatory": true, "section": "Reporter"},
+    {"id": "reporter_qualification", "label": "Reporter Qualification", "mandatory": false, "section": "Reporter"}
+  ]
+}
