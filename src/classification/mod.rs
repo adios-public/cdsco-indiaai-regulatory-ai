@@ -3,6 +3,8 @@
 //! Severity categories per Schedule Y of the Drugs and Cosmetics Act 1940.
 //! Events classified as death or life-threatening require 15-day expedited
 //! reporting to CDSCO.
+//!
+//! Uses powerful_model (qwen3.6) — gajendra returns empty on structured JSON prompts.
 use axum::{extract::State, Json};
 use serde::{Deserialize, Serialize};
 
@@ -20,12 +22,9 @@ Analyse the case narration and return a JSON object with these exact keys:
 
 Return only valid JSON. No preamble. No markdown fences."#;
 
-// ── Types ────────────────────────────────────────────────────────────────────
-
 #[derive(Deserialize)]
 pub struct ClassificationRequest {
     pub case_narration:   String,
-    // Reserved for Stage 2: vector search against CDSCO case DB
     #[allow(dead_code)]
     pub check_duplicate:  Option<bool>,
     #[allow(dead_code)]
@@ -52,14 +51,12 @@ fn severity_to_priority(s: &str) -> &'static str {
     }
 }
 
-// ── Handler ──────────────────────────────────────────────────────────────────
-
 pub async fn handle(
     State(state): State<AppState>,
     Json(req):    Json<ClassificationRequest>,
 ) -> Result<Json<ClassificationResponse>, AppError> {
     let raw = state.ollama
-        .chat(&state.settings.default_model, SYSTEM, &req.case_narration, 512)
+        .chat(&state.settings.powerful_model, SYSTEM, &req.case_narration, 512)
         .await?;
 
     let json_str = extract_json_obj(&raw);
