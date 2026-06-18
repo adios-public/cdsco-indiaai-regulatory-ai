@@ -1,0 +1,40 @@
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.env
+.venv/
+venv/
+ENV/
+*.log
+.DS_Store
+
+# Models cache
+.cache/
+models/cache/
+*.pkl
+*.joblib
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Test artifacts
+.pytest_cache/
+htmlcov/
+.coverage
+coverage.xml
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# Data (never commit real clinical data)
+data/real/
+data/private/
+*.csv
+!data/sample/*.csv
