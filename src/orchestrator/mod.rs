@@ -7,49 +7,40 @@
 //!
 //! ## Tier ladder (cheapest → most capable)
 //!
-//! | Tier | Model | Params | Best for |
-//! |------|-------|--------|----------|
-//! | T0   | sarvam | 2B | Ultra-fast classification, Indic scripts |
-//! | T1   | ayurparam | 2.9B | Clinical/Ayurveda, Hindi/Sanskrit |
-//! | T2   | gajendra | 7B | Bilingual generalist, Indian regulatory |
-//! | T3   | glm-5.2 | ~9B | Structured JSON, multi-step reasoning |
-//! | T4   | deepseek-r1:7b | 7B | Logic-heavy, self-correcting |
-//! | T5   | qwen3.6 | 36B | Long-form summarisation, complex reports |
-//! | T6   | kimi-k2.5 (local GGUF) | ~9B | Code + reasoning |
-//! | CLOUD| Kimi API | ∞ | Last resort — requires allow_cloud:true |
+//! | Tier | Model      | Params | Best for |
+//! |------|------------|--------|----------|
+//! | T0   | sarvam     | 2B     | Ultra-fast classification, Indic scripts |
+//! | T1   | ayurparam  | 2.9B   | Clinical/Ayurveda, Hindi/Sanskrit |
+//! | T2   | gajendra   | 7B     | Bilingual generalist, Indian regulatory |
+//! | T3   | glm-5.2    | ~9B    | Structured JSON, multi-step reasoning |
+//! | T4   | deepseek-r1| 7B     | Logic-heavy, self-correcting |
+//! | T5   | qwen3.6    | 36B    | Long-form summarisation, complex reports |
+//! | T6   | kimi-k2.5  | ~9B    | Code + reasoning |
+//! | CLOUD| Kimi API   | ∞      | Last resort — requires allow_cloud:true |
 
 use serde::{Deserialize, Serialize};
 use std::time::Instant;
 
 use crate::ollama::OllamaClient;
 
-// ── Task Profile ──────────────────────────────────────────────────────────────
+// ── Task Profile ────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TaskDomain {
-    /// CDSCO / Schedule Y / DPDP regulatory classification
     Regulatory,
-    /// Clinical notes, SAE narrations, patient records
     Clinical,
-    /// Indic-language input (Hindi / regional scripts)
     Indic,
-    /// Document comparison, diff, completeness check (no LLM needed)
     Structural,
-    /// General-purpose summarisation or Q&A
     General,
-    /// Code generation / analysis
     Code,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Complexity {
-    /// Single-label classification, entity extraction < 512 tokens
     Simple,
-    /// Multi-field extraction, reasoning up to 2K tokens
     Medium,
-    /// Long-form generation, multi-step reasoning, > 2K tokens
     Complex,
 }
 
@@ -57,53 +48,46 @@ pub enum Complexity {
 pub struct TaskProfile {
     pub domain:        TaskDomain,
     pub complexity:    Complexity,
-    /// Task MUST return parseable JSON
     pub requires_json: bool,
-    /// Approximate input token count
     pub input_tokens:  usize,
-    /// Allow routing to cloud models if local tier fails
     #[serde(default)]
     pub allow_cloud:   bool,
 }
 
 // ── Model registry ────────────────────────────────────────────────────────────
 
-#[derive(Debug, Clone)]
 pub struct ModelEntry {
-    pub tag:          &'static str,
-    pub params_b:     f32,      // billions
-    pub local:        bool,
-    pub json_reliable: bool,    // returns valid JSON reliably
+    pub tag:           &'static str,
+    pub params_b:      f32,
+    pub local:         bool,
+    pub json_reliable: bool,
     pub indic_capable: bool,
-    /// Estimated cost per 1K output tokens in USD (0.0 for local)
-    pub cost_per_1k:  f32,
+    pub cost_per_1k:   f32,
 }
 
 pub const MODEL_REGISTRY: &[ModelEntry] = &[
-    ModelEntry { tag: "sarvam:latest",        params_b: 2.0,  local: true,  json_reliable: false, indic_capable: true,  cost_per_1k: 0.0 },
-    ModelEntry { tag: "ayurparam:latest",     params_b: 2.9,  local: true,  json_reliable: false, indic_capable: true,  cost_per_1k: 0.0 },
-    ModelEntry { tag: "gajendra:latest",      params_b: 7.0,  local: true,  json_reliable: false, indic_capable: true,  cost_per_1k: 0.0 },
-    ModelEntry { tag: "glm-5.2:latest",       params_b: 9.0,  local: true,  json_reliable: true,  indic_capable: false, cost_per_1k: 0.0 },
-    ModelEntry { tag: "deepseek-r1:7b",       params_b: 7.0,  local: true,  json_reliable: true,  indic_capable: false, cost_per_1k: 0.0 },
-    ModelEntry { tag: "kimi-k2.5:latest",     params_b: 9.0,  local: true,  json_reliable: true,  indic_capable: false, cost_per_1k: 0.0 },
-    ModelEntry { tag: "qwen3.6:latest",       params_b: 36.0, local: true,  json_reliable: true,  indic_capable: false, cost_per_1k: 0.0 },
-    // Cloud fallback — only used when allow_cloud:true
-    ModelEntry { tag: "moonshot-v1-32k",      params_b: 999.0,local: false, json_reliable: true,  indic_capable: false, cost_per_1k: 0.012 },
+    ModelEntry { tag: "sarvam:latest",    params_b: 2.0,  local: true,  json_reliable: false, indic_capable: true,  cost_per_1k: 0.0 },
+    ModelEntry { tag: "ayurparam:latest", params_b: 2.9,  local: true,  json_reliable: false, indic_capable: true,  cost_per_1k: 0.0 },
+    ModelEntry { tag: "gajendra:latest",  params_b: 7.0,  local: true,  json_reliable: false, indic_capable: true,  cost_per_1k: 0.0 },
+    ModelEntry { tag: "glm-5.2:latest",   params_b: 9.0,  local: true,  json_reliable: true,  indic_capable: false, cost_per_1k: 0.0 },
+    ModelEntry { tag: "deepseek-r1:7b",   params_b: 7.0,  local: true,  json_reliable: true,  indic_capable: false, cost_per_1k: 0.0 },
+    ModelEntry { tag: "kimi-k2.5:latest", params_b: 9.0,  local: true,  json_reliable: true,  indic_capable: false, cost_per_1k: 0.0 },
+    ModelEntry { tag: "qwen3.6:latest",   params_b: 36.0, local: true,  json_reliable: true,  indic_capable: false, cost_per_1k: 0.0 },
+    ModelEntry { tag: "moonshot-v1-32k",  params_b: 999.0,local: false, json_reliable: true,  indic_capable: false, cost_per_1k: 0.012 },
 ];
 
 // ── Router ────────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Serialize)]
 pub struct RouteDecision {
-    pub selected_model:  String,
-    pub tier:            &'static str,
-    pub is_local:        bool,
-    pub estimated_cost:  f32,
-    pub rationale:       String,
+    pub selected_model: String,
+    pub tier:           &'static str,
+    pub is_local:       bool,
+    pub estimated_cost: f32,
+    pub rationale:      String,
 }
 
 pub fn select_model(profile: &TaskProfile) -> RouteDecision {
-    // Structural tasks never need LLM
     if profile.domain == TaskDomain::Structural {
         return RouteDecision {
             selected_model: "none".into(),
@@ -114,49 +98,34 @@ pub fn select_model(profile: &TaskProfile) -> RouteDecision {
         };
     }
 
-    let candidates: Vec<&ModelEntry> = MODEL_REGISTRY.iter()
+    let chosen = MODEL_REGISTRY.iter()
         .filter(|m| {
-            // Exclude cloud unless explicitly allowed
             if !m.local && !profile.allow_cloud { return false; }
-            // JSON tasks need a JSON-reliable model
             if profile.requires_json && !m.json_reliable { return false; }
-            // Indic domain needs an Indic-capable model
             if profile.domain == TaskDomain::Indic && !m.indic_capable { return false; }
-            // Complex tasks need >= 7B params
             if profile.complexity == Complexity::Complex && m.params_b < 7.0 { return false; }
-            // Medium tasks need >= 3B
-            if profile.complexity == Complexity::Medium && m.params_b < 2.9 { return false; }
+            if profile.complexity == Complexity::Medium  && m.params_b < 2.9 { return false; }
             true
         })
-        .collect();
-
-    let chosen = candidates
-        .iter()
-        // Pick smallest params (cheapest) that passes all filters
-        .min_by(|a, b| a.params_b.partial_cmp(&b.params_b).unwrap())
-        .copied();
+        .min_by(|a, b| a.params_b.partial_cmp(&b.params_b).unwrap());
 
     match chosen {
-        Some(m) => {
-            let tier = tier_label(m);
-            let cost = profile.input_tokens as f32 * m.cost_per_1k / 1000.0;
-            RouteDecision {
-                selected_model: m.tag.to_owned(),
-                tier,
-                is_local: m.local,
-                estimated_cost: cost,
-                rationale: format!(
-                    "{}B params, json_reliable={}, indic={}, cost/1k=${:.4}",
-                    m.params_b, m.json_reliable, m.indic_capable, m.cost_per_1k
-                ),
-            }
-        }
+        Some(m) => RouteDecision {
+            selected_model: m.tag.to_owned(),
+            tier: tier_label(m),
+            is_local: m.local,
+            estimated_cost: profile.input_tokens as f32 * m.cost_per_1k / 1000.0,
+            rationale: format!(
+                "{}B params | json_reliable={} | indic={} | cost/1k=${:.4}",
+                m.params_b, m.json_reliable, m.indic_capable, m.cost_per_1k
+            ),
+        },
         None => RouteDecision {
             selected_model: "qwen3.6:latest".into(),
             tier: "T5-fallback",
             is_local: true,
             estimated_cost: 0.0,
-            rationale: "No candidate matched constraints — falling back to qwen3.6".into(),
+            rationale: "No candidate matched — fallback to qwen3.6".into(),
         },
     }
 }
@@ -174,36 +143,33 @@ fn tier_label(m: &ModelEntry) -> &'static str {
     }
 }
 
-// ── Orchestrated inference ────────────────────────────────────────────────────
+// ── Orchestrated inference with fallback ────────────────────────────────────────
 
 #[derive(Debug, Serialize)]
 pub struct InferenceResult {
-    pub model_used:      String,
-    pub tier:            String,
-    pub content:         String,
-    pub latency_ms:      u128,
-    pub is_local:        bool,
-    pub cost_usd:        f32,
-    pub fallback_used:   bool,
+    pub model_used:    String,
+    pub tier:          String,
+    pub content:       String,
+    pub latency_ms:    u128,
+    pub is_local:      bool,
+    pub cost_usd:      f32,
+    pub fallback_used: bool,
 }
 
-/// Run inference with automatic fallback up the tier ladder.
-/// On failure at a tier, escalates to next and retries once.
 pub async fn run(
-    ollama:  &OllamaClient,
-    profile: &TaskProfile,
-    system:  &str,
-    user:    &str,
-    max_tokens: u32,
+    ollama:     &OllamaClient,
+    profile:    &TaskProfile,
+    system:     &str,
+    user:       &str,
+    max_tokens: i32,
 ) -> anyhow::Result<InferenceResult> {
-    let decision  = select_model(profile);
-    let fallback  = "qwen3.6:latest";
-    let start     = Instant::now();
+    let decision = select_model(profile);
+    let fallback = "qwen3.6:latest";
+    let start    = Instant::now();
 
-    // Try selected model
     match ollama.chat(&decision.selected_model, system, user, max_tokens).await {
         Ok(content) => Ok(InferenceResult {
-            model_used:    decision.selected_model.clone(),
+            model_used:    decision.selected_model,
             tier:          decision.tier.to_owned(),
             content,
             latency_ms:    start.elapsed().as_millis(),
@@ -211,11 +177,8 @@ pub async fn run(
             cost_usd:      decision.estimated_cost,
             fallback_used: false,
         }),
-        Err(primary_err) => {
-            tracing::warn!(
-                "Model {} failed ({}), escalating to {}",
-                decision.selected_model, primary_err, fallback
-            );
+        Err(e) => {
+            tracing::warn!("Model {} failed ({}), escalating to {}", decision.selected_model, e, fallback);
             let content = ollama.chat(fallback, system, user, max_tokens).await?;
             Ok(InferenceResult {
                 model_used:    fallback.to_owned(),
@@ -230,7 +193,7 @@ pub async fn run(
     }
 }
 
-// ── Route endpoint ────────────────────────────────────────────────────────────
+// ── HTTP handler for /api/v1/orchestrator/route ───────────────────────────────
 
 use axum::{extract::State, Json};
 use crate::AppState;
@@ -243,15 +206,15 @@ pub struct RouteRequest {
 
 #[derive(Serialize)]
 pub struct RouteResponse {
-    pub decision:  RouteDecision,
+    pub decision:         RouteDecision,
     pub available_models: Vec<ModelSummary>,
 }
 
 #[derive(Serialize)]
 pub struct ModelSummary {
-    pub tag:       &'static str,
-    pub params_b:  f32,
-    pub local:     bool,
+    pub tag:         &'static str,
+    pub params_b:    f32,
+    pub local:       bool,
     pub cost_per_1k: f32,
 }
 

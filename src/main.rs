@@ -37,20 +37,18 @@ async fn main() -> anyhow::Result<()> {
         .init();
 
     let settings = Arc::new(Settings::from_env());
-    let ollama   = Arc::new(OllamaClient::new(&settings.ollama_base_url));
+    let ollama   = Arc::new(OllamaClient::new(settings.ollama_base_url.clone()));
     let state    = AppState { settings: settings.clone(), ollama };
 
     let app = Router::new()
         .route("/health", get(health))
-        // Core regulatory endpoints
-        .route("/api/v1/anonymise",                post(anonymisation::handle))
-        .route("/api/v1/summarise",                post(summarisation::handle))
-        .route("/api/v1/assess-completeness",      post(completeness::handle_assess))
-        .route("/api/v1/compare",                  post(completeness::handle_compare))
-        .route("/api/v1/classify-sae",             post(classification::handle))
+        .route("/api/v1/anonymise",                  post(anonymisation::handle))
+        .route("/api/v1/summarise",                  post(summarisation::handle))
+        .route("/api/v1/assess-completeness",        post(completeness::handle_assess))
+        .route("/api/v1/compare",                    post(completeness::handle_compare))
+        .route("/api/v1/classify-sae",               post(classification::handle))
         .route("/api/v1/generate-inspection-report", post(inspection::handle))
-        // Orchestrator
-        .route("/api/v1/orchestrator/route",       post(orchestrator::handle_route))
+        .route("/api/v1/orchestrator/route",         post(orchestrator::handle_route))
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())
         .with_state(state);
