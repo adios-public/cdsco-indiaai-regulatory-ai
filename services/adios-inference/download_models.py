@@ -1,62 +1,69 @@
 """Download required Indic AI models to ~/.adios/models/hf/
 
-Run once:
-    python3 services/adios-inference/download_models.py
+Public models (no HF account needed):
+    - Meta NLLB-200-distilled-600M  (Apache 2.0)  ~2.4GB  ← primary translation
+    - AI4Bharat IndicBERTv2-MLM-TLM (MIT)          ~1.1GB  ← Indic embeddings
+    - BharatGen Param-1-2.9B-Instruct (check card) ~5.8GB  ← Hindi+En instruction
 
-Models downloaded:
-    - IndicTrans2 En-Indic distilled 200M (MIT)  ~400MB
-    - IndicTrans2 Indic-En distilled 200M (MIT)  ~400MB
-    - BharatGen Param-1 2.9B-Instruct           ~5.8GB
-    - IndicBERT (ai4bharat/indic-bert)           ~50MB
+Gated models (request access at huggingface.co first):
+    - ai4bharat/indictrans2-en-indic-dist-200M  (MIT, gated)
+    - ai4bharat/indictrans2-indic-en-dist-200M  (MIT, gated)
+    - ai4bharat/indic-bert                      (gated)
+
+Once IndicTrans2 access is approved, re-run this script — the gateway
+automatically upgrades from NLLB-200 to IndicTrans2 when those dirs are present.
 """
-import os
-import sys
-
+import os, sys
 try:
     from huggingface_hub import snapshot_download
 except ImportError:
-    print("ERROR: huggingface_hub not installed.")
-    print("Run: pip install huggingface_hub")
+    print("ERROR: pip install huggingface_hub")
     sys.exit(1)
 
 BASE = os.path.expanduser("~/.adios/models/hf")
 os.makedirs(BASE, exist_ok=True)
 
-MODELS = [
-    # (repo_id, local_dir_name, description)
-    ("ai4bharat/indictrans2-en-indic-dist-200M",
-     "indictrans2-en-indic-dist-200M",
-     "IndicTrans2 En→Indic distilled 200M — MIT license"),
-    ("ai4bharat/indictrans2-indic-en-dist-200M",
-     "indictrans2-indic-en-dist-200M",
-     "IndicTrans2 Indic→En distilled 200M — MIT license"),
-    ("ai4bharat/indic-bert",
-     "indic-bert",
-     "IndicBERT ALBERT-base — 12 Indian languages, embeddings/NER"),
-    ("bharatgenai/Param-1-2.9B-Instruct",
-     "param-1-2.9b-instruct",
-     "BharatGen Param-1 2.9B — Hindi+English instruction model"),
+PUBLIC = [
+    ("facebook/nllb-200-distilled-600M",    "nllb-200-distilled-600M",
+     "Meta NLLB-200 600M — 200+ langs — Apache 2.0"),
+    ("ai4bharat/IndicBERTv2-MLM-TLM",       "indicbertv2-mlm-tlm",
+     "IndicBERTv2 TLM — 23 Indian languages"),
+    ("bharatgenai/Param-1-2.9B-Instruct",   "param-1-2.9b-instruct",
+     "BharatGen Param-1 2.9B — Hindi+English instruction"),
 ]
 
-def download(repo_id: str, local_name: str, desc: str):
-    dest = os.path.join(BASE, local_name)
-    if os.path.isdir(dest) and any(f.endswith(".bin") or f.endswith(".safetensors")
-                                   for f in os.listdir(dest)):
-        print(f"  SKIP  {local_name} (already present at {dest})")
-        return
-    print(f"  GET   {local_name}")
-    print(f"        {desc}")
+GATED = [
+    ("ai4bharat/indictrans2-en-indic-dist-200M", "indictrans2-en-indic-dist-200M",
+     "IndicTrans2 En→Indic 200M — MIT (request access first)"),
+    ("ai4bharat/indictrans2-indic-en-dist-200M", "indictrans2-indic-en-dist-200M",
+     "IndicTrans2 Indic→En 200M — MIT (request access first)"),
+    ("ai4bharat/indic-bert",                     "indic-bert",
+     "IndicBERT — 12 Indian languages (request access first)"),
+]
+
+SKIP = ["*.msgpack","*.h5","flax_*","tf_*","rust_*"]
+
+def pull(repo, name, desc):
+    dest = os.path.join(BASE, name)
+    if os.path.isdir(dest) and os.listdir(dest):
+        print(f"  SKIP  {name}")
+        return True
+    print(f"  GET   {name}  ({desc})")
     try:
-        snapshot_download(repo_id=repo_id, local_dir=dest,
-                          ignore_patterns=["*.msgpack", "*.h5", "flax_model*",
-                                           "tf_model*", "rust_model*"])
-        print(f"  DONE  {local_name} → {dest}")
+        snapshot_download(repo_id=repo, local_dir=dest, ignore_patterns=SKIP)
+        print(f"  DONE  {name}")
+        return True
     except Exception as e:
-        print(f"  FAIL  {local_name}: {e}")
+        print(f"  FAIL  {name}: {e}")
+        return False
 
 if __name__ == "__main__":
-    print(f"Downloading Indic AI models to {BASE}\n")
-    for repo, name, desc in MODELS:
-        download(repo, name, desc)
-    print("\nAll done. Start adios-inference:")
-    print("  uvicorn services.adios-inference.main:app --port 8010 --reload")
+    print(f"Model directory: {BASE}\n")
+    print("=== Public models ===")
+    for r, n, d in PUBLIC:
+        pull(r, n, d)
+    print("\n=== Gated models (requires HF access approval) ===")
+    for r, n, d in GATED:
+        pull(r, n, d)
+    print("\nDone. Start gateway:")
+    print("  uvicorn main:app --host 0.0.0.0 --port 8010")

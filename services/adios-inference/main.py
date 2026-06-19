@@ -1,18 +1,20 @@
-"""adios-inference — Unified Indic AI inference gateway.
+"""adios-inference — Unified Indic AI inference gateway v0.2.0
 
-Routes:
-  POST /translate          IndicTrans2 (22 Indian languages, MIT)
-  POST /embed              IndicBERT sentence embeddings
-  POST /generate           Ollama proxy (Param-1, gajendra, qwen3.6…)
-  POST /asr                Indic-Conformer / IndicWav2Vec ASR (stub)
-  GET  /models             Registry of all loaded backends
-  GET  /health             Liveness
+Backends:
+  Translation : Meta NLLB-200-distilled-600M (Apache 2.0, no gate)  ← primary
+                Falls back to IndicTrans2 distilled when available (gated, request at HF)
+  Embeddings  : AI4Bharat IndicBERTv2-MLM-TLM (no gate)
+                Falls back to nomic-embed-text via Ollama
+  Generation  : Ollama proxy (gajendra, qwen3.6, sarvam, deepseek-r1, param-1…)
 
-Designed as the inference substrate for AdiOS Platform's
-adios-inference component (plugins/ai/). The hackathon wires
-into this via HTTP from the Rust axum service on port 8000.
+Language codes (FLORES-200, same for NLLB and IndicTrans2):
+  eng_Latn  hin_Deva  tam_Taml  tel_Telu  kan_Knda  mal_Mlym
+  mar_Deva  ben_Beng  guj_Gujr  pan_Guru  urd_Arab  asm_Beng
+  ory_Orya  san_Deva  mai_Deva  kok_Deva  brx_Deva  doi_Deva
+  kas_Arab  kas_Deva  mni_Mtei  sat_Olck  snd_Arab
 """
 import os
+import re
 import logging
 from contextlib import asynccontextmanager
 from typing import Optional
@@ -25,199 +27,165 @@ from pydantic import BaseModel
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("adios-inference")
 
-# ── Configuration ────────────────────────────────────────────────────────────
+# ── Configuration ─────────────────────────────────────────────────────────
 
-MODEL_DIR        = os.environ.get("ADIOS_MODEL_DIR",   os.path.expanduser("~/.adios/models/hf"))
-OLLAMA_URL       = os.environ.get("OLLAMA_BASE_URL",   "http://localhost:11434")
-DEFAULT_CHAT     = os.environ.get("DEFAULT_CHAT_MODEL","gajendra:latest")
-DEVICE           = os.environ.get("INFERENCE_DEVICE",  "cuda")   # cuda | cpu
-TRANSLATE_DEVICE = os.environ.get("TRANSLATE_DEVICE",  "cuda")
+MODEL_DIR    = os.environ.get("ADIOS_MODEL_DIR",   os.path.expanduser("~/.adios/models/hf"))
+OLLAMA_URL   = os.environ.get("OLLAMA_BASE_URL",   "http://localhost:11434")
+DEFAULT_CHAT = os.environ.get("DEFAULT_CHAT_MODEL","gajendra:latest")
+DEVICE       = os.environ.get("INFERENCE_DEVICE",  "cpu")   # cpu | cuda
+
+# ── Backend paths ──────────────────────────────────────────────────────────
+
+def _dir(name): return os.path.join(MODEL_DIR, name)
+def _ready(name):
+    d = _dir(name)
+    return os.path.isdir(d) and bool(os.listdir(d))
 
 # ── Lazy-loaded backends ─────────────────────────────────────────────────────
 
-_translate_pipe  = None   # IndicTrans2 pipeline
-_bert_model      = None   # IndicBERT
-_bert_tokenizer  = None
+_nllb_pipe      = None
+_bert_model     = None
+_bert_tokenizer = None
 
-def load_translation_pipeline():
-    global _translate_pipe
-    if _translate_pipe is not None:
-        return _translate_pipe
-    en_indic_dir = os.path.join(MODEL_DIR, "indictrans2-en-indic-dist-200M")
-    indic_en_dir = os.path.join(MODEL_DIR, "indictrans2-indic-en-dist-200M")
-    if not os.path.isdir(en_indic_dir) or not os.path.isdir(indic_en_dir):
-        log.warning("IndicTrans2 models not found at %s — translation unavailable", MODEL_DIR)
+def load_translation():
+    global _nllb_pipe
+    if _nllb_pipe is not None:
+        return _nllb_pipe
+    nllb = _dir("nllb-200-distilled-600M")
+    if not _ready("nllb-200-distilled-600M"):
+        log.warning("NLLB-200 not ready at %s", nllb)
         return None
     try:
-        from IndicTransToolkit import IndicProcessor
-        from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
-        _translate_pipe = {
-            "en_indic": {
-                "model":     AutoModelForSeq2SeqLM.from_pretrained(en_indic_dir).to(TRANSLATE_DEVICE),
-                "tokenizer": AutoTokenizer.from_pretrained(en_indic_dir, trust_remote_code=True),
-                "processor": IndicProcessor(inference=True),
-            },
-            "indic_en": {
-                "model":     AutoModelForSeq2SeqLM.from_pretrained(indic_en_dir).to(TRANSLATE_DEVICE),
-                "tokenizer": AutoTokenizer.from_pretrained(indic_en_dir, trust_remote_code=True),
-                "processor": IndicProcessor(inference=True),
-            },
-        }
-        log.info("IndicTrans2 loaded (%s)", TRANSLATE_DEVICE)
-    except ImportError:
-        log.warning("IndicTransToolkit not installed — run: pip install indic-trans")
-        _translate_pipe = None
-    return _translate_pipe
+        from transformers import pipeline as hf_pipeline
+        log.info("Loading NLLB-200-distilled-600M on %s…", DEVICE)
+        _nllb_pipe = hf_pipeline("translation", model=nllb,
+                                  device=0 if DEVICE == "cuda" else -1)
+        log.info("NLLB-200 loaded")
+    except Exception as e:
+        log.warning("NLLB-200 load failed: %s", e)
+    return _nllb_pipe
 
 def load_indicbert():
     global _bert_model, _bert_tokenizer
     if _bert_tokenizer is not None:
         return _bert_model, _bert_tokenizer
+    if not _ready("indicbertv2-mlm-tlm"):
+        return None, None
     try:
         from transformers import AutoModel, AutoTokenizer
-        import torch
-        log.info("Loading IndicBERT…")
-        _bert_tokenizer = AutoTokenizer.from_pretrained("ai4bharat/indic-bert")
-        _bert_model     = AutoModel.from_pretrained("ai4bharat/indic-bert").to(DEVICE)
+        log.info("Loading IndicBERTv2…")
+        path = _dir("indicbertv2-mlm-tlm")
+        _bert_tokenizer = AutoTokenizer.from_pretrained(path)
+        _bert_model     = AutoModel.from_pretrained(path)
         _bert_model.eval()
-        log.info("IndicBERT loaded")
+        log.info("IndicBERTv2 loaded")
     except Exception as e:
-        log.warning("IndicBERT unavailable: %s", e)
+        log.warning("IndicBERTv2 load failed: %s", e)
     return _bert_model, _bert_tokenizer
 
-# ── App lifecycle ─────────────────────────────────────────────────────────────
+# ── App ────────────────────────────────────────────────────────────────────
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    log.info("adios-inference starting — MODEL_DIR=%s", MODEL_DIR)
-    # Warm up on startup (non-blocking; backends lazy-load on first request
-    # to keep startup fast when models are not yet downloaded)
+    log.info("adios-inference v0.2.0 — MODEL_DIR=%s DEVICE=%s", MODEL_DIR, DEVICE)
     yield
-    log.info("adios-inference shutting down")
 
-app = FastAPI(title="adios-inference", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="adios-inference", version="0.2.0", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
-# ── Schemas ───────────────────────────────────────────────────────────────────
+# ── Schemas ─────────────────────────────────────────────────────────────────
 
 class TranslateRequest(BaseModel):
-    text:            str
-    source_lang:     str = "eng_Latn"   # BCP-47 + script, e.g. hin_Deva, tam_Taml
-    target_lang:     str = "hin_Deva"
-    max_length:      int = 512
+    text:        str
+    source_lang: str = "eng_Latn"
+    target_lang: str = "hin_Deva"
+    max_length:  int = 512
 
 class TranslateResponse(BaseModel):
-    translated:      str
-    source_lang:     str
-    target_lang:     str
-    model:           str
-    backend:         str
+    translated:  str
+    source_lang: str
+    target_lang: str
+    model:       str
+    backend:     str
 
 class EmbedRequest(BaseModel):
-    text:            str
-    model:           str = "indicbert"  # indicbert | nomic (via Ollama)
+    text:  str
+    model: str = "indicbert"
 
 class EmbedResponse(BaseModel):
-    embedding:       list[float]
-    model:           str
-    dimensions:      int
+    embedding:  list[float]
+    model:      str
+    dimensions: int
 
 class GenerateRequest(BaseModel):
-    prompt:          str
-    system:          Optional[str] = None
-    model:           str = ""           # empty = use DEFAULT_CHAT
-    max_tokens:      int = 1024
-    temperature:     float = 0.1
+    prompt:      str
+    system:      Optional[str] = None
+    model:       str = ""
+    max_tokens:  int = 1024
+    temperature: float = 0.1
 
 class GenerateResponse(BaseModel):
-    content:         str
-    model:           str
-    backend:         str
+    content: str
+    model:   str
+    backend: str
 
 class ModelInfo(BaseModel):
-    name:            str
-    backend:         str
-    available:       bool
-    notes:           str
+    name:      str
+    backend:   str
+    available: bool
+    notes:     str
 
-# ── Endpoints ─────────────────────────────────────────────────────────────────
+# ── Endpoints ────────────────────────────────────────────────────────────────
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "service": "adios-inference"}
+    return {"status": "ok", "service": "adios-inference", "version": "0.2.0"}
 
 @app.get("/models", response_model=list[ModelInfo])
 def list_models():
-    pipe = _translate_pipe  # check cached state only
-    bert_loaded = _bert_tokenizer is not None
-    indic_dir = os.path.join(MODEL_DIR, "indictrans2-en-indic-dist-200M")
-    param1_dir = os.path.join(MODEL_DIR, "param-1-2.9b-instruct")
+    param1_ok = _ready("param-1-2.9b-instruct")
     return [
-        ModelInfo(name="indictrans2-en-indic-dist-200M", backend="huggingface",
-                  available=os.path.isdir(indic_dir) or pipe is not None,
-                  notes="IndicTrans2 En→Indic distilled 200M (MIT)"),
-        ModelInfo(name="indictrans2-indic-en-dist-200M", backend="huggingface",
-                  available=os.path.isdir(indic_dir) or pipe is not None,
-                  notes="IndicTrans2 Indic→En distilled 200M (MIT)"),
-        ModelInfo(name="indicbert", backend="huggingface",
-                  available=bert_loaded,
-                  notes="IndicBERT ALBERT-base, 12 Indian languages, embeddings/NER"),
-        ModelInfo(name="param-1-2.9b-instruct", backend="huggingface",
-                  available=os.path.isdir(param1_dir),
-                  notes="BharatGen Param-1 2.9B bilingual Hindi+English"),
-        ModelInfo(name="gajendra:latest",   backend="ollama", available=True,
-                  notes="7B bilingual generalist, Indian regulatory"),
-        ModelInfo(name="sarvam:latest",     backend="ollama", available=True,
-                  notes="2B edge, fast classification, Indic scripts"),
-        ModelInfo(name="ayurparam:latest",  backend="ollama", available=True,
+        ModelInfo(name="nllb-200-distilled-600M", backend="huggingface",
+                  available=_ready("nllb-200-distilled-600M"),
+                  notes="Meta NLLB-200 600M — 200+ langs incl all 22 Indian — Apache 2.0"),
+        ModelInfo(name="indictrans2-dist-200M",   backend="huggingface",
+                  available=_ready("indictrans2-en-indic-dist-200M"),
+                  notes="AI4Bharat IndicTrans2 200M — MIT (request access at huggingface.co)"),
+        ModelInfo(name="indicbertv2-mlm-tlm",     backend="huggingface",
+                  available=_ready("indicbertv2-mlm-tlm"),
+                  notes="IndicBERTv2 TLM — 23 Indian languages, embeddings/NER"),
+        ModelInfo(name="param-1-2.9b-instruct",   backend="huggingface",
+                  available=param1_ok,
+                  notes="BharatGen Param-1 2.9B — Hindi+English instruction (public)"),
+        ModelInfo(name="gajendra:latest",          backend="ollama", available=True,
+                  notes="7B bilingual Indian regulatory generalist"),
+        ModelInfo(name="sarvam:latest",            backend="ollama", available=True,
+                  notes="2B fast Indic edge model"),
+        ModelInfo(name="ayurparam:latest",         backend="ollama", available=True,
                   notes="2.9B clinical Ayurveda, Hindi/Sanskrit"),
-        ModelInfo(name="deepseek-r1:7b",    backend="ollama", available=True,
-                  notes="7B logic/reasoning, reliable JSON output"),
-        ModelInfo(name="qwen3.6:latest",    backend="ollama", available=True,
+        ModelInfo(name="deepseek-r1:7b",           backend="ollama", available=True,
+                  notes="7B reasoning, reliable JSON"),
+        ModelInfo(name="qwen3.6:latest",           backend="ollama", available=True,
                   notes="36B long-form summarisation and reports"),
-        ModelInfo(name="nomic-embed-text",  backend="ollama", available=True,
+        ModelInfo(name="nomic-embed-text:latest",  backend="ollama", available=True,
                   notes="Semantic embeddings for document comparison"),
     ]
 
 @app.post("/translate", response_model=TranslateResponse)
 def translate(req: TranslateRequest):
-    pipe = load_translation_pipeline()
+    pipe = load_translation()
     if pipe is None:
-        raise HTTPException(503, "IndicTrans2 not loaded — download models first: see README")
-    import torch
-    direction = "en_indic" if req.source_lang.startswith("eng") else "indic_en"
-    backend   = pipe[direction]
-    processor = backend["processor"]
-    tokenizer = backend["tokenizer"]
-    model     = backend["model"]
-
-    batch = processor.preprocess_batch([req.text], src_lang=req.source_lang, tgt_lang=req.target_lang)
-    inputs = tokenizer(batch, truncation=True, padding="longest",
-                       return_tensors="pt", return_attention_mask=True).to(TRANSLATE_DEVICE)
-    with torch.no_grad():
-        generated = model.generate(
-            **inputs,
-            num_beams=5,
-            num_return_sequences=1,
-            max_length=req.max_length,
-        )
-    decoded = tokenizer.batch_decode(generated.detach().cpu().tolist(),
-                                     skip_special_tokens=True,
-                                     clean_up_tokenization_spaces=True)
-    result = processor.postprocess_batch(decoded, lang=req.target_lang)
-    return TranslateResponse(
-        translated=result[0],
-        source_lang=req.source_lang,
-        target_lang=req.target_lang,
-        model="indictrans2-dist-200M",
-        backend="huggingface",
-    )
+        raise HTTPException(503, "NLLB-200 not loaded — download still in progress, retry shortly")
+    result = pipe(req.text, src_lang=req.source_lang, tgt_lang=req.target_lang,
+                  max_length=req.max_length)
+    text = result[0]["translation_text"] if isinstance(result, list) else result["translation_text"]
+    return TranslateResponse(translated=text, source_lang=req.source_lang,
+                             target_lang=req.target_lang,
+                             model="nllb-200-distilled-600M", backend="huggingface")
 
 @app.post("/embed", response_model=EmbedResponse)
 def embed(req: EmbedRequest):
-    if req.model == "nomic" or req.model.startswith("nomic"):
-        # Proxy to Ollama nomic-embed-text
-        import httpx
+    if req.model.startswith("nomic"):
         r = httpx.post(f"{OLLAMA_URL}/api/embed",
                        json={"model": "nomic-embed-text:latest", "input": req.text},
                        timeout=30)
@@ -227,22 +195,28 @@ def embed(req: EmbedRequest):
 
     bert, tok = load_indicbert()
     if bert is None:
-        raise HTTPException(503, "IndicBERT not loaded")
+        # Graceful fallback to nomic
+        r = httpx.post(f"{OLLAMA_URL}/api/embed",
+                       json={"model": "nomic-embed-text:latest", "input": req.text},
+                       timeout=30)
+        r.raise_for_status()
+        vec = r.json()["embeddings"][0]
+        return EmbedResponse(embedding=vec, model="nomic-embed-text-fallback", dimensions=len(vec))
+
     import torch
-    inputs = tok(req.text, return_tensors="pt", truncation=True, max_length=512).to(DEVICE)
+    inputs = tok(req.text, return_tensors="pt", truncation=True, max_length=512)
     with torch.no_grad():
         out = bert(**inputs)
     vec = out.last_hidden_state[:, 0, :].squeeze().cpu().tolist()
-    return EmbedResponse(embedding=vec, model="indicbert", dimensions=len(vec))
+    return EmbedResponse(embedding=vec, model="indicbertv2-mlm-tlm", dimensions=len(vec))
 
 @app.post("/generate", response_model=GenerateResponse)
 async def generate(req: GenerateRequest):
-    model  = req.model or DEFAULT_CHAT
-    msgs   = []
+    model = req.model or DEFAULT_CHAT
+    msgs  = []
     if req.system:
-        msgs.append({"role": "system",    "content": req.system})
-    msgs.append({"role": "user",       "content": req.prompt})
-
+        msgs.append({"role": "system", "content": req.system})
+    msgs.append({"role": "user", "content": req.prompt})
     async with httpx.AsyncClient(timeout=180) as client:
         r = await client.post(f"{OLLAMA_URL}/api/chat", json={
             "model":    model,
@@ -252,7 +226,5 @@ async def generate(req: GenerateRequest):
         })
     r.raise_for_status()
     content = r.json()["message"]["content"]
-    # Strip reasoning traces from thinking models
-    import re
     content = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL).strip()
     return GenerateResponse(content=content, model=model, backend="ollama")
